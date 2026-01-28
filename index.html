@@ -1,0 +1,938 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jewellery Sales Invoice</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- QR Code generation library -->
+    <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            transition: background-color 0.3s;
+        }
+        .login-bg {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        }
+        .invoice-container {
+             max-width: 1000px;
+             margin: auto;
+        }
+        .invoice-box {
+            margin-bottom: 2rem;
+            padding: 25px;
+            border: 1px solid #eee;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.15);
+            font-size: 16px;
+            line-height: 24px;
+            color: #333; /* Darker Black Text Color */
+            background: #fff;
+        }
+        /* A4 paper size for printing */
+        @page {
+            size: A4;
+            margin: 0;
+        }
+        @media print {
+            html, body {
+                width: 210mm;
+                height: 297mm;
+                margin: 0;
+                padding: 0;
+                background: #fff;
+                font-size: 11px; /* Adjust font size for print */
+                -webkit-print-color-adjust: exact; /* Helps with images and backgrounds */
+            }
+            #main-content {
+                 height: 100%;
+            }
+            .invoice-container {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                display: flex;
+                flex-direction: column;
+            }
+            .invoice-box {
+                flex: 1;
+                margin: 0;
+                padding: 0.2cm;
+                box-shadow: none;
+                border: none;
+                box-sizing: border-box;
+                page-break-inside: avoid;
+                overflow: hidden;
+            }
+            .invoice-box:first-child:not(.single-print) {
+                border-bottom: 1px dashed #aaa !important;
+            }
+            .single-print {
+                height: 100% !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .meta-section {
+                padding: 0.5rem !important;
+                margin: 0.5rem 0 !important;
+                gap: 0.5rem !important;
+            }
+            .meta-box {
+                padding: 0.25rem !important;
+            }
+            input[type="date"]::-webkit-calendar-picker-indicator {
+                display: none;
+            }
+        }
+        .editable {
+            padding: 2px 5px;
+            cursor: text;
+        }
+        .editable:focus-within, .editable:focus {
+            outline: 1px solid #4f46e5;
+            background-color: #fefce8;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+            width: 100%;
+            text-align: right;
+            padding: 5px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            background-color: transparent;
+        }
+        input.discount {
+            text-align: right;
+        }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        input[type="number"]:hover, input[type="number"]:focus {
+            outline: none;
+            border: 1px solid #ddd;
+        }
+        input[type="number"]:read-only {
+            background-color: #f3f4f6;
+             cursor: not-allowed;
+        }
+        input[type="date"] {
+            border: none;
+            background: transparent;
+            padding: 2px 5px;
+            font-weight: bold;
+            direction: ltr;
+            text-align: left;
+        }
+         input[type="date"]:focus {
+            outline: 1px solid #4f46e5;
+            background-color: #fefce8;
+        }
+         @keyframes shake {
+          10%, 90% { transform: translate3d(-1px, 0, 0); }
+          20%, 80% { transform: translate3d(2px, 0, 0); }
+          30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+          40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+        .shake {
+            animation: shake 0.82s cubic-bezier(.36,.07,.19,.97) both;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 login-bg">
+
+    <div id="login-container" class="min-h-screen flex flex-col items-center justify-center pb-16">
+        <div class="w-full max-w-md p-8 space-y-6 bg-white/80 backdrop-blur-md rounded-2xl shadow-2xl">
+            <div class="text-center">
+                <h1 class="text-3xl font-bold text-gray-900">Sign in with email</h1>
+                <p class="mt-2 text-gray-600">Enter your credentials to access your invoices.</p>
+            </div>
+
+            <form id="login-form" class="space-y-4">
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                            <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                        </svg>
+                    </div>
+                    <input id="email" type="email" placeholder="Email" class="pl-10 w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 transition" required>
+                </div>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <input id="password" type="password" placeholder="Password" class="pl-10 pr-10 w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-500 transition" required>
+                    <div class="absolute inset-y-0 right-0 pr-3 flex items-center">
+                        <button type="button" id="toggle-password" class="text-gray-400 hover:text-gray-600">
+                             <svg id="eye-open" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                                <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+                            </svg>
+                            <svg id="eye-closed" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 hidden" viewBox="0 0 20 20" fill="currentColor">
+                               <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zM10 12a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
+                                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                               <path d="M10 17a7 7 0 01-7-7c0-1.638.56-3.16 1.49-4.393l1.473 1.473A5.001 5.001 0 008 10c0 .324.037.64.108.944l1.32 1.32A3.001 3.001 0 0110 13c.324 0 .64-.037.944-.108l1.32 1.32A5.001 5.001 0 0110 15c-1.638 0-3.16-.56-4.393-1.49l-1.473 1.473A7.001 7.001 0 0010 17z" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="text-right">
+                     <a href="#" id="forgot-password-link" class="text-sm font-semibold text-gray-600 hover:text-amber-700">Forgot password?</a>
+                </div>
+                 <div>
+                    <button type="submit" class="w-full bg-gray-900 hover:bg-gray-800 text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-300">
+                        Get Started
+                    </button>
+                </div>
+                <div class="text-center pt-4">
+                    <p class="text-base text-gray-600">For support, please <a href="#" id="contact-link" class="text-amber-700 hover:underline">Contact Us</a>.</p>
+                </div>
+                <p id="error-message" class="text-red-500 text-sm text-center pt-2"></p>
+            </form>
+        </div>
+        <p class="text-center text-gray-500 text-xs mt-6">Version 1.0</p>
+    </div>
+    <footer class="text-center text-gray-500 text-xs py-4 fixed bottom-0 w-full no-print">
+        Copyright © 2025. All Rights Reserved.
+    </footer>
+
+    <!-- Contact Modal -->
+    <div id="contact-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                 <h3 class="text-lg leading-6 font-medium text-gray-900">Contact Support</h3>
+                 <div class="mt-2 px-7 py-3">
+                     <form id="contact-form">
+                         <div class="mb-4">
+                             <label for="reason" class="block text-gray-700 text-sm font-bold mb-2 text-left">Reason for Contact</label>
+                             <select id="reason" class="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-amber-500">
+                                 <option>Need Subscription</option>
+                                 <option>Other</option>
+                             </select>
+                         </div>
+                         <div class="mb-4">
+                            <label for="contact-email" class="block text-gray-700 text-sm font-bold mb-2 text-left">Your Email</label>
+                            <input type="email" id="contact-email" class="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-amber-500" required>
+                         </div>
+                          <div class="mb-4">
+                            <label for="contact-message" class="block text-gray-700 text-sm font-bold mb-2 text-left">Inbox</label>
+                            <textarea id="contact-message" rows="4" class="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-amber-500" required></textarea>
+                         </div>
+                         <button type="submit" class="w-full bg-amber-700 hover:bg-amber-800 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-300">Send Message</button>
+                     </form>
+                     <p id="success-message" class="text-green-500 text-sm mt-4 hidden">Your message has been sent. We will contact you shortly.</p>
+                 </div>
+                 <div class="items-center px-4 py-3">
+                     <button id="close-modal" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Close</button>
+                 </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Forgot Password Modal -->
+    <div id="forgot-password-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                 <h3 class="text-lg leading-6 font-medium text-gray-900">Reset Password</h3>
+                 <div class="mt-2 px-7 py-3">
+                     <form id="forgot-password-form">
+                         <div class="mb-4">
+                            <label for="reset-email" class="block text-gray-700 text-sm font-bold mb-2 text-left">Your Email</label>
+                            <input type="email" id="reset-email" class="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-amber-500" required>
+                         </div>
+                         <button type="submit" class="w-full bg-amber-700 hover:bg-amber-800 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-300">Send Reset Link</button>
+                     </form>
+                     <p id="reset-success-message" class="text-green-500 text-sm mt-4 hidden">Please check your email inbox or spam folder. A link has been sent to you to reset your password.</p>
+                     <p id="reset-error-message" class="text-red-500 text-sm text-center mt-4"></p>
+                 </div>
+                 <div class="items-center px-4 py-3">
+                     <button id="close-reset-modal" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Close</button>
+                 </div>
+            </div>
+        </div>
+    </div>
+
+
+    <div id="main-content" class="hidden">
+        <div class="no-print text-center mb-6 flex justify-between items-center max-w-6xl mx-auto">
+            <div>
+                <button id="addItemGlobal" class="bg-indigo-500 text-white py-2 px-4 rounded-md hover:bg-indigo-600">+ Add Item</button>
+                <button id="removeItemGlobal" class="bg-red-500 text-white py-2 px-4 rounded-md hover:bg-red-600 ml-2">- Remove Last Item</button>
+            </div>
+            <div>
+                 <button id="toggleInvoiceBtn" class="bg-purple-500 text-white py-2 px-4 rounded-md hover:bg-purple-600">Show Second Invoice</button>
+                <button id="copyInvoiceBtn" class="bg-yellow-500 text-black py-2 px-4 rounded-md hover:bg-yellow-600 ml-2 hidden">Copy to Second</button>
+                <button id="printBtn" class="bg-green-500 text-white py-2 px-6 rounded-md hover:bg-green-600 ml-4">
+                    Print Invoices / Save as PDF
+                </button>
+                <button id="logout-btn" class="bg-gray-500 text-white py-2 px-6 rounded-md hover:bg-gray-600 ml-4">
+                    Logout
+                </button>
+            </div>
+        </div>
+
+        <div class="invoice-container">
+            <!-- INVOICE 1 -->
+            <div id="invoice-box-1" class="invoice-box">
+                 <!-- Header Section -->
+                <header class="pb-2 border-b-2 border-gray-200 bg-sky-50 p-2 rounded-t-lg">
+                    <div class="grid grid-cols-3 items-center gap-2 text-amber-700">
+                        <div class="text-left">
+                            <h1 class="companyName text-2xl font-bold editable" contenteditable="true">Branch Zakharef Al-Riyadh Co.</h1>
+                            <p class="companySloganEn text-base editable" contenteditable="true">To Sale & Buy Gold & Jewellery</p>
+                            <p class="companyCrEn text-base editable" contenteditable="true">C.R. 1010397057</p>
+                            <p class="companyLicenseEn text-base editable" contenteditable="true">License No.: 11/10102987</p>
+                        </div>
+                        <div class="text-center">
+                             <img src="https://github.com/tangailbuzzbd-svg/TangailBuzz-Picture-/blob/main/WhatsApp%20Image%202025-10-15%20at%204.35.30%20PM_upscaled%20(1).png?raw=true" alt="Company Logo" class="h-32 mx-auto">
+                        </div>
+                        <div class="text-right" dir="rtl">
+                            <h1 class="companyNameAr text-3xl font-bold editable" contenteditable="true">فرع شركة زخارف الرياض</h1>
+                            <p class="companySloganAr text-base editable" contenteditable="true">لبيع وشراء الذهب والمجوهرات</p>
+                            <p class="companyCrAr text-base editable" contenteditable="true">س.ت : ١٠١٠٣٩٧٠٥٧</p>
+                            <p class="companyLicenseAr text-base editable" contenteditable="true">ترخيص رقم : ١١/١٠١٠٢٩٨٧</p>
+                        </div>
+                    </div>
+                    <div class="text-center mt-2">
+                        <p class="vatNumber text-base font-semibold text-amber-700 editable" contenteditable="true">VAT NO : 311125720100003</p>
+                    </div>
+                </header>
+                <!-- Meta Section -->
+                <section class="meta-section bg-gray-100 p-1 grid grid-cols-3 items-center gap-1 my-1 text-xs">
+                    <div class="meta-box border border-black p-1" dir="rtl">
+                        <div class="flex justify-between items-center">
+                            <span class="text-right">رقم الفاتورة</span>
+                            <span class="invoiceNumber font-bold text-left editable" contenteditable="true"></span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-right">تاريخ الفاتورة</span>
+                            <input type="date" class="invoiceDate p-0">
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <h2 class="font-bold underline editable text-sm" contenteditable="true">فاتورة مبيعات ضريبية مبسطة</h2>
+                        <p class="paymentMethod text-xs editable" contenteditable="true">طريقة الدفع نقدا</p>
+                    </div>
+                    <div class="meta-box border border-black p-1 text-right" dir="rtl">
+                        <p>اسم العميل: <span class="customerName font-bold editable" contenteditable="true">&nbsp;</span></p>
+                        <p>الرقم الضريبي للعميل: <span class="customerTaxNumber font-bold editable" contenteditable="true">&nbsp;</span></p>
+                    </div>
+                </section>
+                <!-- Items Table Section -->
+                <section class="mt-4" dir="rtl">
+                    <table class="w-full border-collapse border border-black text-center text-sm">
+                        <thead class="bg-gray-200">
+                            <tr class="border border-black">
+                                <th class="p-1 border border-black w-1/6"><div>اجمالي المبلغ</div><div>Total Amount</div></th>
+                                <th class="p-1 border border-black w-3/12"><div>وصف الصنف</div><div>Item Description</div></th>
+                                <th class="p-1 border border-black"><div>الكمية</div><div>Qty</div></th>
+                                <th class="p-1 border border-black"><div>المقاس</div><div>Size</div></th>
+                                <th class="p-1 border border-black"><div>وزن الذهب</div><div>Weight</div></th>
+                                <th class="p-1 border border-black"><div>أحجار</div><div>Stones</div></th>
+                                <th class="p-1 border border-black"><div>العيار</div><div>Karat</div></th>
+                                <th class="p-1 border border-black"><div>سعر الجرام</div><div>Price</div></th>
+                                <th class="p-1 border border-black"><div>الاجمالي</div><div>Total</div></th>
+                                <th class="p-1 border border-black"><div>الضريبة</div><div>V.A.T</div></th>
+                            </tr>
+                        </thead>
+                        <tbody class="invoice-items"></tbody>
+                    </table>
+                </section>
+                <!-- Summary and QR -->
+                <section class="mt-4 pt-4 border-t-2">
+                    <table class="w-full border-collapse">
+                        <tbody>
+                            <tr>
+                                <td class="w-1/3 p-1 align-middle text-center">
+                                    <div class="qrcode-container w-48 h-48 inline-block"></div>
+                                </td>
+                                <td class="w-2/3 p-0 align-top">
+                                    <table class="w-full border-collapse text-sm">
+                                        <tbody>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Total gold weight</td>
+                                                <td class="p-1 text-right border border-black">إجمالي وزن الذهب</td>
+                                                <td class="p-1 font-bold text-right summary-gold-weight border border-black">0.00</td>
+                                            </tr>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Total Stone Value</td>
+                                                <td class="p-1 text-right border border-black">إجمالي قيمة الاحجار</td>
+                                                <td class="p-1 font-bold text-right summary-stone-value border border-black">0.00</td>
+                                            </tr>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Subtotal</td>
+                                                <td class="p-1 text-right border border-black">الإجمالي قبل الخصم</td>
+                                                <td class="p-1 font-bold text-right summary-subtotal border border-black">0.00</td>
+                                            </tr>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Discount</td>
+                                                <td class="p-1 text-right border border-black">الخصم</td>
+                                                <td class="p-1 font-bold text-right border border-black">
+                                                    <input type="number" value="0.00" class="discount w-full bg-transparent rounded-md font-semibold p-1">
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Vat 15%</td>
+                                                <td class="p-1 text-right border border-black">ضريبة القيمة المضافة %15</td>
+                                                <td class="p-1 font-bold text-right summary-vat border border-black">0.00</td>
+                                            </tr>
+                                            <tr class="bg-gray-100">
+                                                <td class="p-1 font-bold text-left border border-black" colspan="2">Total With Vat</td>
+                                                <td class="p-1 font-bold text-right border border-black">الإجمالي شامل ضريبة القيمة المضافة</td>
+                                                <td class="p-1 font-bold text-lg text-right summary-total border border-black">0.00</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+                <!-- Footer Section -->
+                <footer class="mt-4 pt-2 pb-2 text-center text-base text-amber-700 bg-amber-50 rounded-b-lg">
+                     <p dir="rtl" class="editable" contenteditable="true">المملكة العربية السعودية - الرياض - حلة القصمان - سوق الذهب - محل رقم ٧٥٢٣٣ - تلفون - ٤١١٦٩٩٩ ٠١١ - تحويلة ١٠٢</p>
+                     <p class="editable" contenteditable="true">Kingdom of Saudi Arabia - Riyadh - Hellet Al-Qusman - Gold market - Shop No. 75233 - Tel: 011 4116999 -Exit 102</p>
+                </footer>
+            </div>
+
+            <!-- INVOICE 2 -->
+             <div id="invoice-box-2" class="invoice-box hidden">
+                 <!-- Header Section -->
+                <header class="pb-2 border-b-2 border-gray-200 bg-sky-50 p-2 rounded-t-lg">
+                    <div class="grid grid-cols-3 items-center gap-2 text-amber-700">
+                        <div class="text-left">
+                            <h1 class="companyName text-2xl font-bold editable" contenteditable="true">Branch Zakharef Al-Riyadh Co.</h1>
+                            <p class="companySloganEn text-base editable" contenteditable="true">To Sale & Buy Gold & Jewellery</p>
+                            <p class="companyCrEn text-base editable" contenteditable="true">C.R. 1010397057</p>
+                            <p class="companyLicenseEn text-base editable" contenteditable="true">License No.: 11/10102987</p>
+                        </div>
+                        <div class="text-center">
+                             <img src="https://github.com/tangailbuzzbd-svg/TangailBuzz-Picture-/blob/main/WhatsApp%20Image%202025-10-15%20at%204.35.30%20PM_upscaled%20(1).png?raw=true" alt="Company Logo" class="h-32 mx-auto">
+                        </div>
+                        <div class="text-right" dir="rtl">
+                            <h1 class="companyNameAr text-3xl font-bold editable" contenteditable="true">فرع شركة زخارف الرياض</h1>
+                            <p class="companySloganAr text-base editable" contenteditable="true">لبيع وشراء الذهب والمجوهرات</p>
+                            <p class="companyCrAr text-base editable" contenteditable="true">س.ت : ١٠١٠٣٩٧٠٥٧</p>
+                            <p class="companyLicenseAr text-base editable" contenteditable="true">ترخيص رقم : ١١/١٠١٠٢٩٨٧</p>
+                        </div>
+                    </div>
+                    <div class="text-center mt-2">
+                        <p class="vatNumber text-base font-semibold text-amber-700 editable" contenteditable="true">VAT NO : 311125720100003</p>
+                    </div>
+                </header>
+                <!-- Meta Section -->
+                <section class="meta-section bg-gray-100 p-1 grid grid-cols-3 items-center gap-1 my-1 text-xs">
+                    <div class="meta-box border border-black p-1" dir="rtl">
+                        <div class="flex justify-between items-center">
+                            <span class="text-right">رقم الفاتورة</span>
+                            <span class="invoiceNumber font-bold text-left editable" contenteditable="true"></span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-right">تاريخ الفاتورة</span>
+                            <input type="date" class="invoiceDate p-0">
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <h2 class="font-bold underline editable text-sm" contenteditable="true">فاتورة مبيعات ضريبية مبسطة</h2>
+                        <p class="paymentMethod text-xs editable" contenteditable="true">طريقة الدفع نقدا</p>
+                    </div>
+                    <div class="meta-box border border-black p-1 text-right" dir="rtl">
+                        <p>اسم العميل: <span class="customerName font-bold editable" contenteditable="true">&nbsp;</span></p>
+                        <p>الرقم الضريبي للعميل: <span class="customerTaxNumber font-bold editable" contenteditable="true">&nbsp;</span></p>
+                    </div>
+                </section>
+                <!-- Items Table Section -->
+                <section class="mt-4" dir="rtl">
+                    <table class="w-full border-collapse border border-black text-center text-sm">
+                        <thead class="bg-gray-200">
+                            <tr class="border border-black">
+                                <th class="p-1 border border-black w-1/6"><div>اجمالي المبلغ</div><div>Total Amount</div></th>
+                                <th class="p-1 border border-black w-3/12"><div>وصف الصنف</div><div>Item Description</div></th>
+                                <th class="p-1 border border-black"><div>الكمية</div><div>Qty</div></th>
+                                <th class="p-1 border border-black"><div>المقاس</div><div>Size</div></th>
+                                <th class="p-1 border border-black"><div>وزن الذهب</div><div>Weight</div></th>
+                                <th class="p-1 border border-black"><div>أحجار</div><div>Stones</div></th>
+                                <th class="p-1 border border-black"><div>العيار</div><div>Karat</div></th>
+                                <th class="p-1 border border-black"><div>سعر الجرام</div><div>Price</div></th>
+                                <th class="p-1 border border-black"><div>الاجمالي</div><div>Total</div></th>
+                                <th class="p-1 border border-black"><div>الضريبة</div><div>V.A.T</div></th>
+                            </tr>
+                        </thead>
+                        <tbody class="invoice-items"></tbody>
+                    </table>
+                </section>
+                <!-- Summary and QR -->
+                <section class="mt-4 pt-4 border-t-2">
+                    <table class="w-full border-collapse">
+                        <tbody>
+                            <tr>
+                                <td class="w-1/3 p-1 align-middle text-center">
+                                    <div class="qrcode-container w-48 h-48 inline-block"></div>
+                                </td>
+                                <td class="w-2/3 p-0 align-top">
+                                    <table class="w-full border-collapse text-sm">
+                                        <tbody>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Total gold weight</td>
+                                                <td class="p-1 text-right border border-black">إجمالي وزن الذهب</td>
+                                                <td class="p-1 font-bold text-right summary-gold-weight border border-black">0.00</td>
+                                            </tr>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Total Stone Value</td>
+                                                <td class="p-1 text-right border border-black">إجمالي قيمة الاحجار</td>
+                                                <td class="p-1 font-bold text-right summary-stone-value border border-black">0.00</td>
+                                            </tr>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Subtotal</td>
+                                                <td class="p-1 text-right border border-black">الإجمالي قبل الخصم</td>
+                                                <td class="p-1 font-bold text-right summary-subtotal border border-black">0.00</td>
+                                            </tr>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Discount</td>
+                                                <td class="p-1 text-right border border-black">الخصم</td>
+                                                <td class="p-1 font-bold text-right border border-black">
+                                                    <input type="number" value="0.00" class="discount w-full bg-transparent rounded-md font-semibold p-1">
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td class="p-1 text-left border border-black" colspan="2">Vat 15%</td>
+                                                <td class="p-1 text-right border border-black">ضريبة القيمة المضافة %15</td>
+                                                <td class="p-1 font-bold text-right summary-vat border border-black">0.00</td>
+                                            </tr>
+                                            <tr class="bg-gray-100">
+                                                <td class="p-1 font-bold text-left border border-black" colspan="2">Total With Vat</td>
+                                                <td class="p-1 font-bold text-right border border-black">الإجمالي شامل ضريبة القيمة المضافة</td>
+                                                <td class="p-1 font-bold text-lg text-right summary-total border border-black">0.00</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+                <!-- Footer Section -->
+                <footer class="mt-4 pt-2 pb-2 text-center text-base text-amber-700 bg-amber-50 rounded-b-lg">
+                     <p dir="rtl" class="editable" contenteditable="true">المملكة العربية السعودية - الرياض - حلة القصمان - سوق الذهب - محل رقم ٧٥٢٣٣ - تلفون - ٤١١٦٩٩٩ ٠١١ - تحويلة ١٠٢</p>
+                     <p class="editable" contenteditable="true">Kingdom of Saudi Arabia - Riyadh - Hellet Al-Qusman - Gold market - Shop No. 75233 - Tel: 011 4116999 -Exit 102</p>
+                </footer>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Firebase Configuration ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyAnzy9pLf8WzWNrTF6ZKViU_o-l04vltYg",
+          authDomain: "g-invoice-420.firebaseapp.com",
+          projectId: "g-invoice-420",
+          storageBucket: "g-invoice-420.appspot.com",
+          messagingSenderId: "764790420721",
+          appId: "1:764790420721:web:ecd6935775decfa3f0a550"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        document.addEventListener('DOMContentLoaded', function() {
+            
+            const loginContainer = document.getElementById('login-container');
+            const mainContent = document.getElementById('main-content');
+            const loginForm = document.getElementById('login-form');
+            const emailInput = document.getElementById('email');
+            const passwordInput = document.getElementById('password');
+            const errorMessage = document.getElementById('error-message');
+            const logoutBtn = document.getElementById('logout-btn');
+            const printBtn = document.getElementById('printBtn');
+            const toggleInvoiceBtn = document.getElementById('toggleInvoiceBtn');
+            const copyInvoiceBtn = document.getElementById('copyInvoiceBtn');
+            const addItemGlobalBtn = document.getElementById('addItemGlobal');
+            const removeItemGlobalBtn = document.getElementById('removeItemGlobal');
+            const invoiceBox1 = document.getElementById('invoice-box-1');
+            const invoiceBox2 = document.getElementById('invoice-box-2');
+            const contactModal = document.getElementById('contact-modal');
+            const contactLink = document.getElementById('contact-link');
+            const closeModalBtn = document.getElementById('close-modal');
+            const contactForm = document.getElementById('contact-form');
+            const successMessage = document.getElementById('success-message');
+            const forgotPasswordLink = document.getElementById('forgot-password-link');
+            const forgotPasswordModal = document.getElementById('forgot-password-modal');
+            const closeResetModalBtn = document.getElementById('close-reset-modal');
+            const forgotPasswordForm = document.getElementById('forgot-password-form');
+            const resetSuccessMessage = document.getElementById('reset-success-message');
+            const resetErrorMessage = document.getElementById('reset-error-message');
+            const togglePassword = document.getElementById('toggle-password');
+            const eyeOpen = document.getElementById('eye-open');
+            const eyeClosed = document.getElementById('eye-closed');
+
+            // --- Authentication Logic ---
+            auth.onAuthStateChanged(user => {
+                if (user) {
+                    document.body.classList.remove('login-bg');
+                    loginContainer.classList.add('hidden');
+                    mainContent.classList.remove('hidden');
+                    setupInitialState(); // Setup invoices only after login
+                } else {
+                    document.body.classList.add('login-bg');
+                    loginContainer.classList.remove('hidden');
+                    mainContent.classList.add('hidden');
+                }
+            });
+
+            loginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const email = emailInput.value;
+                const password = passwordInput.value;
+                const signInBtn = loginForm.querySelector('button[type="submit"]');
+
+                auth.signInWithEmailAndPassword(email, password)
+                    .catch(error => {
+                        if (error.code === 'auth/invalid-login-credentials' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+                            errorMessage.textContent = "The email or password you entered is incorrect. If you don't have an account, please contact the admin.";
+                        } else {
+                            errorMessage.textContent = "An error occurred. Please try again later.";
+                        }
+                        signInBtn.classList.add('shake');
+                        setTimeout(() => signInBtn.classList.remove('shake'), 820);
+                    });
+            });
+            
+            emailInput.addEventListener('input', () => {
+                const signInBtn = loginForm.querySelector('button[type="submit"]');
+                signInBtn.classList.remove('shake');
+                errorMessage.textContent = '';
+            });
+            passwordInput.addEventListener('input', () => {
+                const signInBtn = loginForm.querySelector('button[type="submit"]');
+                signInBtn.classList.remove('shake');
+                errorMessage.textContent = '';
+            });
+
+            if(logoutBtn) {
+                logoutBtn.addEventListener('click', () => {
+                    auth.signOut();
+                });
+            }
+
+            if(forgotPasswordLink){
+                forgotPasswordLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    forgotPasswordModal.classList.remove('hidden');
+                });
+            }
+             if(closeResetModalBtn) {
+                closeResetModalBtn.addEventListener('click', () => {
+                    forgotPasswordModal.classList.add('hidden');
+                    resetSuccessMessage.classList.add('hidden');
+                    resetErrorMessage.textContent = '';
+                    forgotPasswordForm.reset();
+                    forgotPasswordForm.classList.remove('hidden');
+                });
+            }
+             if(forgotPasswordForm) {
+                forgotPasswordForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const email = document.getElementById('reset-email').value;
+                    if(email){
+                        auth.sendPasswordResetEmail(email)
+                            .then(() => {
+                                forgotPasswordForm.classList.add('hidden');
+                                resetSuccessMessage.classList.remove('hidden');
+                                resetErrorMessage.textContent = '';
+                            })
+                            .catch((error) => {
+                                resetErrorMessage.textContent = error.message;
+                            });
+                    } else {
+                        resetErrorMessage.textContent = 'Please enter your email address.';
+                    }
+                });
+            }
+            
+            if(printBtn) {
+                printBtn.addEventListener('click', () => {
+                    if(invoiceBox2.classList.contains('hidden')){
+                       invoiceBox1.classList.add('single-print');
+                    }
+                    window.print();
+                    invoiceBox1.classList.remove('single-print');
+                });
+            }
+
+             if(togglePassword){
+                togglePassword.addEventListener('click', function (e) {
+                    // toggle the type attribute
+                    const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                    passwordInput.setAttribute('type', type);
+                    // toggle the eye icon
+                    eyeOpen.classList.toggle('hidden');
+                    eyeClosed.classList.toggle('hidden');
+                });
+            }
+
+
+            // --- INVOICE LOGIC ---
+            const invoiceBoxes = [invoiceBox1, invoiceBox2];
+            let qrCodeInstances = [null, null];
+
+            const setupInitialState = () => {
+                 invoiceBoxes.forEach((box, index) => {
+                    const invoiceNumber = Math.floor(1000 + Math.random() * 9000);
+                    const today = new Date().toISOString().slice(0, 10);
+                    box.querySelector('.invoiceNumber').textContent = invoiceNumber;
+                    box.querySelector('.invoiceDate').value = today;
+                    const itemsContainer = box.querySelector('.invoice-items');
+                    if (itemsContainer && !itemsContainer.hasChildNodes()) {
+                       createItemRow(itemsContainer);
+                    }
+                    updateInvoice(box, index);
+                });
+            };
+
+            const createItemRow = (targetTableBody) => {
+                const row = document.createElement('tr');
+                row.className = 'item-row';
+                row.innerHTML = `
+                    <td class="p-1 border border-black text-right font-medium line_total">0.00</td>
+                    <td class="p-1 border border-black"><span class="description editable block w-full" contenteditable="true"></span></td>
+                    <td class="p-1 border border-black"><input type="number" class="qty w-full p-1" value="1"></td>
+                    <td class="p-1 border border-black"><input type="number" class="size w-full p-1" value="0"></td>
+                    <td class="p-1 border border-black"><input type="number" class="weight w-full p-1" value="0.00" step="0.01"></td>
+                    <td class="p-1 border border-black"><input type="number" class="stones w-full p-1" value="0.00" step="0.01"></td>
+                    <td class="p-1 border border-black"><input type="number" class="karat w-full p-1" value="21"></td>
+                    <td class="p-1 border border-black"><input type="number" class="price w-full p-1" value="0.00" step="0.01"></td>
+                    <td class="p-1 border border-black text-right font-medium line_subtotal">0.00</td>
+                    <td class="p-1 border border-black text-right font-medium vat_amount">0.00</td>
+                `;
+                targetTableBody.appendChild(row);
+            };
+
+            const updateInvoice = (invoiceBox, index) => {
+                const itemsContainer = invoiceBox.querySelector('.invoice-items');
+                let subtotal = 0, totalVat = 0, totalGoldWeight = 0, totalStoneValue = 0;
+
+                itemsContainer.querySelectorAll('tr.item-row').forEach(row => {
+                    const weight = parseFloat(row.querySelector('.weight').value) || 0;
+                    const price = parseFloat(row.querySelector('.price').value) || 0;
+                    const stones = parseFloat(row.querySelector('.stones').value) || 0;
+                    
+                    const baseAmount = (weight * price) + stones;
+                    const vatAmount = baseAmount * 0.15;
+                    const lineTotal = baseAmount + vatAmount;
+
+                    row.querySelector('.line_subtotal').textContent = baseAmount.toFixed(2);
+                    row.querySelector('.vat_amount').textContent = vatAmount.toFixed(2);
+                    row.querySelector('.line_total').textContent = lineTotal.toFixed(2);
+
+                    subtotal += baseAmount;
+                    totalVat += vatAmount;
+                    totalGoldWeight += weight;
+                    totalStoneValue += stones;
+                });
+
+                const discountEl = invoiceBox.querySelector('input.discount');
+                const discount = discountEl ? parseFloat(discountEl.value) : 0;
+                
+                const finalTotal = subtotal - discount + totalVat;
+                
+                invoiceBox.querySelector('.summary-gold-weight').textContent = totalGoldWeight.toFixed(2);
+                invoiceBox.querySelector('.summary-stone-value').textContent = totalStoneValue.toFixed(2);
+                invoiceBox.querySelector('.summary-subtotal').textContent = subtotal.toFixed(2);
+                invoiceBox.querySelector('.summary-vat').textContent = totalVat.toFixed(2);
+                invoiceBox.querySelector('.summary-total').textContent = finalTotal.toFixed(2);
+
+                generateQRCode(invoiceBox, index, finalTotal, totalVat);
+            };
+
+            const updateAllInvoices = () => invoiceBoxes.forEach(updateInvoice);
+
+            const toTlv = (tag, value) => {
+                const valueAsBytes = new TextEncoder().encode(value);
+                const length = valueAsBytes.length;
+                const tlv = new Uint8Array(2 + length);
+                tlv[0] = tag;
+                tlv[1] = length;
+                tlv.set(valueAsBytes, 2);
+                return tlv;
+            };
+
+            const generateZatcaBase64 = (sellerName, vatNumber, isoTimestamp, totalWithVat, vatAmount) => {
+                const tlv1 = toTlv(1, sellerName);
+                const tlv2 = toTlv(2, vatNumber);
+                const tlv3 = toTlv(3, isoTimestamp);
+                const tlv4 = toTlv(4, totalWithVat.toFixed(2));
+                const tlv5 = toTlv(5, vatAmount.toFixed(2));
+                const combinedBytes = new Uint8Array([...tlv1, ...tlv2, ...tlv3, ...tlv4, ...tlv5]);
+                let binaryString = '';
+                combinedBytes.forEach(byte => { binaryString += String.fromCharCode(byte); });
+                return btoa(binaryString);
+            };
+
+            const generateQRCode = (invoiceBox, index, total, vat) => {
+                const qrCodeContainer = invoiceBox.querySelector('.qrcode-container');
+                const company = invoiceBox.querySelector('.companyName').textContent.trim();
+                const vatNumber = invoiceBox.querySelector('.vatNumber').textContent.replace(/[^0-9]/g, '');
+                const dateValue = invoiceBox.querySelector('.invoiceDate').value;
+                const isoTimestamp = new Date(dateValue).toISOString();
+                
+                const qrText = generateZatcaBase64(company, vatNumber, isoTimestamp, total, vat);
+                qrCodeContainer.innerHTML = ''; // Clear previous QR
+                qrCodeInstances[index] = new QRCode(qrCodeContainer, { text: qrText, width: 180, height: 180, correctLevel : QRCode.CorrectLevel.H });
+            };
+            
+            // --- EVENT HANDLING ---
+            if(addItemGlobal) {
+                addItemGlobal.addEventListener('click', () => {
+                    invoiceBoxes.forEach(box => {
+                        if (!box.classList.contains('hidden')) {
+                           createItemRow(box.querySelector('.invoice-items'))
+                        }
+                    });
+                });
+            }
+
+            if(removeItemGlobal) {
+                removeItemGlobal.addEventListener('click', () => {
+                    invoiceBoxes.forEach(box => {
+                        if (!box.classList.contains('hidden')) {
+                            const items = box.querySelectorAll('.invoice-items .item-row');
+                            if (items.length > 1) { 
+                                items[items.length - 1].remove();
+                            }
+                        }
+                    });
+                    updateAllInvoices();
+                });
+            }
+            
+            if(toggleInvoiceBtn) {
+                toggleInvoiceBtn.addEventListener('click', () => {
+                    invoiceBox2.classList.toggle('hidden');
+                    const isHidden = invoiceBox2.classList.contains('hidden');
+                    toggleInvoiceBtn.textContent = isHidden ? 'Show Second Invoice' : 'Hide Second Invoice';
+                    copyInvoiceBtn.classList.toggle('hidden', isHidden);
+                    if(!isHidden){
+                        copyInvoiceData(invoiceBox1, invoiceBox2);
+                    }
+                });
+            }
+            
+            const copyInvoiceData = (sourceBox, targetBox) => {
+                // Copy editable content
+                const editables = sourceBox.querySelectorAll('.editable');
+                editables.forEach(el => {
+                   const classList = Array.from(el.classList).filter(c => c !== 'editable' && c !== 'font-bold');
+                   if (classList.length > 0) {
+                       const selector = classList.map(c => `.${c}`).join('');
+                       const targetEl = targetBox.querySelector(selector);
+                       if(targetEl) targetEl.innerHTML = el.innerHTML;
+                   }
+                });
+                
+                // Copy input values
+                const inputs = sourceBox.querySelectorAll('input');
+                 inputs.forEach(el => {
+                   if (el.classList.length > 0) {
+                        const selector = `.${el.classList[0]}`;
+                        const targetEl = targetBox.querySelector(selector);
+                        if(targetEl) targetEl.value = el.value;
+                   }
+                });
+                
+                // Copy table body
+                const items1 = sourceBox.querySelector('.invoice-items');
+                const items2 = targetBox.querySelector('.invoice-items');
+                items2.innerHTML = items1.innerHTML;
+                
+                updateInvoice(targetBox, 1);
+            };
+
+            if(copyInvoiceBtn){
+                copyInvoiceBtn.addEventListener('click', () => {
+                    copyInvoiceData(invoiceBox1, invoiceBox2);
+                    
+                    // Visual feedback
+                    copyInvoiceBtn.textContent = 'Copied! ✓';
+                    copyInvoiceBtn.classList.remove('bg-yellow-500', 'text-black', 'hover:bg-yellow-600');
+                    copyInvoiceBtn.classList.add('bg-green-500', 'text-white');
+                    setTimeout(() => {
+                        copyInvoiceBtn.textContent = 'Copy to Second';
+                        copyInvoiceBtn.classList.add('bg-yellow-500', 'text-black', 'hover:bg-yellow-600');
+                        copyInvoiceBtn.classList.remove('bg-green-500', 'text-white');
+                    }, 2000);
+                });
+            }
+
+
+            invoiceBoxes.forEach((box, index) => {
+                box.addEventListener('input', () => {
+                    setTimeout(() => {
+                        updateInvoice(box, index);
+                        if(index === 0 && !invoiceBox2.classList.contains('hidden')){
+                           // copyInvoiceData(invoiceBox1, invoiceBox2);
+                        }
+                    }, 50);
+                });
+            });
+
+            // Contact Modal Logic
+            if (contactLink) {
+                contactLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    contactModal.classList.remove('hidden');
+                });
+            }
+            if(closeModalBtn) {
+                closeModalBtn.addEventListener('click', () => {
+                    contactModal.classList.add('hidden');
+                    successMessage.classList.add('hidden');
+                    contactForm.reset();
+                });
+            }
+             if (contactForm) {
+                contactForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const reason = document.getElementById('reason').value;
+                    const email = document.getElementById('contact-email').value;
+                    const message = document.getElementById('contact-message').value;
+
+                    db.collection('support_messages').add({
+                        reason: reason,
+                        email: email,
+                        message: message,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    })
+                    .then(() => {
+                        contactForm.reset();
+                        successMessage.classList.remove('hidden');
+                        setTimeout(() => {
+                            contactModal.classList.add('hidden');
+                            successMessage.classList.add('hidden');
+                        }, 3000);
+                    })
+                    .catch((error) => {
+                        alert("Message could not be sent. Please check your internet connection and Firebase rules.");
+                        console.error("Error writing document: ", error);
+                    });
+                });
+            }
+
+        });
+    </script>
+</body>
+</html>
